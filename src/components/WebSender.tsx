@@ -117,11 +117,11 @@ export function WebSender() {
               />
             </div>
 
-            <div className="flex items-center justify-between mt-4">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4">
               <button
                 onClick={() => setIsTransmitting(!isTransmitting)}
                 className={cn(
-                  "flex items-center space-x-2 px-6 py-3 rounded-lg font-medium transition-colors text-white",
+                  "w-full sm:w-auto flex justify-center items-center space-x-2 px-6 py-3 rounded-lg font-medium transition-colors text-white",
                   isTransmitting 
                     ? "bg-red-500 hover:bg-red-600" 
                     : "bg-blue-600 hover:bg-blue-700"
@@ -134,7 +134,7 @@ export function WebSender() {
                 )}
               </button>
               
-              <div className="flex items-center space-x-3 text-neutral-600 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-900 px-4 py-2 rounded-lg">
+              <div className="w-full sm:w-auto flex justify-center items-center space-x-3 text-neutral-600 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-900 px-4 py-2 rounded-lg">
                 <Settings className="w-4 h-4" />
                 <span className="text-sm">Speed:</span>
                 <select 

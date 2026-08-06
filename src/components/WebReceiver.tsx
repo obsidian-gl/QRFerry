@@ -27,6 +27,8 @@ export function WebReceiver() {
   const [fileMeta, setFileMeta] = useState<{ name: string, total: number } | null>(null);
   const [progress, setProgress] = useState(0);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [encodedCount, setEncodedCount] = useState(0);
+  const [decodedCount, setDecodedCount] = useState(0);
   
   const scanLoopRef = useRef<number | null>(null);
 
@@ -110,7 +112,15 @@ export function WebReceiver() {
       // Try to get decoded data
       const decodedData = decoderRef.current.getDecoded();
       if (decodedData) {
+        setEncodedCount(encodedCount);
+        setDecodedCount(decodedCount);
         reconstructFile(decodedData, filename);
+      } else {
+        // Only update UI state occasionally to prevent too many re-renders
+        if (encodedCount % 3 === 0 || decodedCount === k) {
+           setEncodedCount(encodedCount);
+           setDecodedCount(decodedCount);
+        }
       }
     } catch (err) {
       console.warn("Error processing block:", err);
@@ -162,6 +172,8 @@ export function WebReceiver() {
     seenBlocksRef.current.clear();
     setFileMeta(null);
     setProgress(0);
+    setEncodedCount(0);
+    setDecodedCount(0);
     setDownloadUrl(null);
     setError(null);
   };
@@ -197,7 +209,7 @@ export function WebReceiver() {
                 <div className="text-center">
                   <p className="font-medium text-neutral-900 dark:text-neutral-100">Receiving: {fileMeta.name}</p>
                   <p className="text-sm text-neutral-500 mt-1">
-                    {decoderRef.current?.encodedCount || 0} frames scanned. {decoderRef.current?.decodedCount || 0} / {fileMeta.total} base chunks recovered
+                    {encodedCount} frames scanned. {decodedCount} / {fileMeta.total} base chunks recovered
                   </p>
                 </div>
                 <div className="w-full h-2 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
