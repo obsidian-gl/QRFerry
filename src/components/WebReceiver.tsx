@@ -31,9 +31,9 @@ export function WebReceiver() {
         setIsScanning(true);
         scanLoopRef.current = requestAnimationFrame(scanTick);
       }
-    } catch (err) {
-      console.error(err);
-      setError("Failed to access camera. Please ensure permissions are granted.");
+    } catch (err: any) {
+      console.warn("Camera error:", err);
+      setError("Camera permission denied. If you are viewing this in a preview iframe, please open the application in a new tab, or ensure you have granted camera access.");
     }
   };
 

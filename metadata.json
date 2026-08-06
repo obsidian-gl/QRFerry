@@ -2,7 +2,8 @@
   "name": "QRFerry",
   "description": "Offline optical file transfer tool using animated QR codes.",
   "requestFramePermissions": [
-    "camera"
+    "camera",
+    "clipboard-write"
   ],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

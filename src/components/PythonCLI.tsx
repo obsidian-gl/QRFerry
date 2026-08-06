@@ -60,11 +60,11 @@ export function PythonCLI() {
             <button
               key={file}
               onClick={() => setActiveFile(file)}
-              className={\`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors \${
+              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 activeFile === file 
                   ? "bg-neutral-200 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100" 
                   : "text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-900"
-              }\`}
+              }`}
             >
               {file.endsWith('.md') ? <FileText className="w-4 h-4" /> : 
                file.endsWith('.py') ? <Code2 className="w-4 h-4" /> : 
