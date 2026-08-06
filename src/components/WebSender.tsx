@@ -2,50 +2,65 @@ import { useState, useRef, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { FileUp, Play, Square, Settings } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { createEncoder, blockToBinary, EncodedBlock } from 'luby-transform';
 
 const CHUNK_SIZE = 500;
 
+function uint8ToBase64(u8Arr: Uint8Array) {
+  let str = '';
+  for (let i = 0; i < u8Arr.length; i++) {
+    str += String.fromCharCode(u8Arr[i]);
+  }
+  return btoa(str);
+}
+
 export function WebSender() {
   const [file, setFile] = useState<File | null>(null);
-  const [chunks, setChunks] = useState<string[]>([]);
   const [isTransmitting, setIsTransmitting] = useState(false);
-  const [currentChunk, setCurrentChunk] = useState(0);
   const [fps, setFps] = useState(8);
+  const [chunksSent, setChunksSent] = useState(0);
+  const [currentQrData, setCurrentQrData] = useState<string | null>(null);
+  
+  const generatorRef = useRef<Generator<EncodedBlock, never> | null>(null);
   const intervalRef = useRef<number | null>(null);
+  const metaNameRef = useRef<string>('');
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (!selected) return;
+    
     setFile(selected);
     setIsTransmitting(false);
-    setChunks([]);
+    setChunksSent(0);
+    setCurrentQrData(null);
     
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      // Extract base64 part
-      const base64Data = dataUrl.split(',')[1];
-      if (!base64Data) return;
-
-      const filenameB64 = btoa(selected.name);
-      const totalChunks = Math.ceil(base64Data.length / CHUNK_SIZE);
-      const newChunks = [];
-
-      for (let i = 0; i < totalChunks; i++) {
-        const chunkData = base64Data.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-        // Protocol: QRF|{filename_b64}|{index}|{total}|{data}
-        newChunks.push(`QRF|${filenameB64}|${i}|${totalChunks}|${chunkData}`);
-      }
-      setChunks(newChunks);
-      setCurrentChunk(0);
-    };
-    reader.readAsDataURL(selected);
+    const buffer = await selected.arrayBuffer();
+    const data = new Uint8Array(buffer);
+    const filenameB64 = btoa(selected.name);
+    metaNameRef.current = filenameB64;
+    
+    const encoder = createEncoder(data, CHUNK_SIZE);
+    generatorRef.current = encoder.fountain();
+    
+    // generate the first QR to display immediately
+    const block = generatorRef.current.next().value;
+    if (block) {
+      const bin = blockToBinary(block);
+      const b64 = uint8ToBase64(bin);
+      setCurrentQrData(`LT1|${filenameB64}|${b64}`);
+    }
   };
 
   useEffect(() => {
-    if (isTransmitting && chunks.length > 0) {
+    if (isTransmitting && generatorRef.current) {
       intervalRef.current = window.setInterval(() => {
-        setCurrentChunk((prev) => (prev + 1) % chunks.length);
+        const block = generatorRef.current?.next().value;
+        if (block) {
+          const bin = blockToBinary(block);
+          const b64 = uint8ToBase64(bin);
+          setCurrentQrData(`LT1|${metaNameRef.current}|${b64}`);
+          setChunksSent((prev) => prev + 1);
+        }
       }, 1000 / fps);
     } else {
       if (intervalRef.current) {
@@ -55,7 +70,7 @@ export function WebSender() {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isTransmitting, chunks.length, fps]);
+  }, [isTransmitting, fps]);
 
   return (
     <div className="flex flex-col items-center justify-center max-w-2xl mx-auto space-y-8 p-6">
@@ -70,7 +85,7 @@ export function WebSender() {
                 {file ? file.name : 'Select a file to send'}
               </p>
               <p className="text-sm text-neutral-500 mt-1">
-                {file ? `${(file.size / 1024).toFixed(1)} KB - ${chunks.length} chunks generated` : 'Any file type, recommended < 1MB for optical transfer'}
+                {file ? `${(file.size / 1024).toFixed(1)} KB` : 'Any file type, recommended < 1MB for optical transfer'}
               </p>
             </div>
             <input type="file" className="hidden" onChange={handleFileChange} />
@@ -78,11 +93,11 @@ export function WebSender() {
         </div>
       )}
 
-      {chunks.length > 0 && (
+      {currentQrData && (
         <div className="flex flex-col items-center space-y-6 w-full">
           <div className="bg-white p-4 rounded-xl shadow-sm border border-neutral-200 w-full max-w-md aspect-square flex items-center justify-center">
              <QRCodeSVG 
-               value={chunks[currentChunk]} 
+               value={currentQrData} 
                className="w-full h-full max-w-[320px] max-h-[320px]" 
                level="L" 
                includeMargin={false}
@@ -91,14 +106,14 @@ export function WebSender() {
 
           <div className="w-full max-w-md flex flex-col space-y-4">
             <div className="flex justify-between text-sm font-medium text-neutral-600 dark:text-neutral-400">
-              <span>Chunk {currentChunk + 1} of {chunks.length}</span>
-              <span>{( ((currentChunk + 1) / chunks.length) * 100 ).toFixed(0)}% Cycle</span>
+              <span>{isTransmitting ? `Transmitting (Fountain Codes)` : `Ready to Transmit`}</span>
+              <span>{chunksSent} frames sent</span>
             </div>
             
             <div className="w-full h-2 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
               <div 
                 className="h-full bg-blue-500 transition-all duration-75"
-                style={{ width: `${((currentChunk + 1) / chunks.length) * 100}%` }}
+                style={{ width: `100%` }}
               />
             </div>
 

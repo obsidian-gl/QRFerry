@@ -2,6 +2,16 @@ import { useState, useRef, useEffect } from 'react';
 import jsQR from 'jsqr';
 import { Camera, Download, AlertCircle, RefreshCcw } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { createDecoder, binaryToBlock, LtDecoder } from 'luby-transform';
+
+function base64ToUint8(b64: string) {
+  const str = atob(b64);
+  const u8 = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) {
+    u8[i] = str.charCodeAt(i);
+  }
+  return u8;
+}
 
 export function WebReceiver() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -11,7 +21,9 @@ export function WebReceiver() {
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const chunksRef = useRef<Map<number, string>>(new Map());
+  const decoderRef = useRef<LtDecoder | null>(null);
+  const seenBlocksRef = useRef<Set<number>>(new Set());
+  
   const [fileMeta, setFileMeta] = useState<{ name: string, total: number } | null>(null);
   const [progress, setProgress] = useState(0);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
@@ -62,16 +74,12 @@ export function WebReceiver() {
   }, []);
 
   const processQRCode = (data: string) => {
-    if (!data.startsWith('QRF|')) return;
+    if (!data.startsWith('LT1|')) return;
     
     const parts = data.split('|');
-    if (parts.length < 5) return;
+    if (parts.length < 3) return;
     
-    const [prefix, filenameB64, idxStr, totalStr, ...payloadParts] = parts;
-    const payload = payloadParts.join('|');
-    
-    const index = parseInt(idxStr, 10);
-    const total = parseInt(totalStr, 10);
+    const [prefix, filenameB64, payloadB64] = parts;
     
     let filename = 'received_file';
     try {
@@ -80,37 +88,39 @@ export function WebReceiver() {
       // ignore
     }
 
-    if (!fileMeta) {
-      setFileMeta({ name: filename, total });
-    }
-
-    if (!chunksRef.current.has(index)) {
-      chunksRef.current.set(index, payload);
+    try {
+      const bin = base64ToUint8(payloadB64);
+      const block = binaryToBlock(bin);
       
-      const currentCount = chunksRef.current.size;
-      setProgress((currentCount / total) * 100);
-      
-      if (currentCount === total) {
-        reconstructFile(filename, total);
+      // Initialize decoder if this is the first block
+      if (!decoderRef.current) {
+        decoderRef.current = createDecoder();
+        setFileMeta({ name: filename, total: block.k });
       }
+
+      decoderRef.current.addBlock(block);
+      
+      // Calculate progress
+      const k = block.k;
+      const decodedCount = decoderRef.current.decodedCount;
+      const encodedCount = decoderRef.current.encodedCount;
+      
+      setProgress((decodedCount / k) * 100);
+
+      // Try to get decoded data
+      const decodedData = decoderRef.current.getDecoded();
+      if (decodedData) {
+        reconstructFile(decodedData, filename);
+      }
+    } catch (err) {
+      console.warn("Error processing block:", err);
     }
   };
 
-  const reconstructFile = (filename: string, total: number) => {
+  const reconstructFile = (data: Uint8Array, filename: string) => {
     stopCamera();
     try {
-      let fullB64 = '';
-      for (let i = 0; i < total; i++) {
-        fullB64 += chunksRef.current.get(i) || '';
-      }
-
-      const byteCharacters = atob(fullB64);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray]);
+      const blob = new Blob([data]);
       const url = URL.createObjectURL(blob);
       setDownloadUrl(url);
     } catch (err) {
@@ -148,7 +158,8 @@ export function WebReceiver() {
   };
 
   const reset = () => {
-    chunksRef.current.clear();
+    decoderRef.current = null;
+    seenBlocksRef.current.clear();
     setFileMeta(null);
     setProgress(0);
     setDownloadUrl(null);
@@ -158,111 +169,101 @@ export function WebReceiver() {
   return (
     <div className="flex flex-col items-center justify-center max-w-2xl mx-auto space-y-8 p-6">
       {error && (
-        <div className="w-full bg-red-50 text-red-700 p-4 rounded-lg flex items-center space-x-3 border border-red-200">
+        <div className="w-full bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-4 rounded-lg flex items-center space-x-3">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
-          <p className="text-sm font-medium">{error}</p>
+          <p className="text-sm">{error}</p>
         </div>
       )}
 
-      {!isScanning && !downloadUrl && (
-        <div className="w-full bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-12 text-center flex flex-col items-center justify-center space-y-6">
-          <div className="bg-neutral-200 dark:bg-neutral-800 p-5 rounded-full">
-            <Camera className="w-10 h-10 text-neutral-600 dark:text-neutral-400" />
-          </div>
-          <div>
-            <h3 className="text-xl font-medium text-neutral-900 dark:text-neutral-100">Ready to Receive</h3>
-            <p className="text-neutral-500 mt-2 text-sm max-w-sm mx-auto">
-              Point your camera at a QRFerry sender to begin capturing data chunks. No internet required.
-            </p>
-          </div>
-          <button
-            onClick={startCamera}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-medium transition-colors"
-          >
-            Open Camera & Scan
-          </button>
-        </div>
-      )}
-
-      {isScanning && (
+      {!downloadUrl ? (
         <div className="w-full flex flex-col items-center space-y-6">
-          <div className="relative w-full max-w-md rounded-2xl overflow-hidden bg-black aspect-video border border-neutral-200 dark:border-neutral-800 shadow-sm">
-            <video 
-              ref={videoRef} 
-              className="w-full h-full object-cover" 
-              playsInline 
-              muted 
-            />
+          <div className="relative w-full max-w-md aspect-[4/3] bg-neutral-900 rounded-xl overflow-hidden shadow-sm border border-neutral-200 dark:border-neutral-800">
+            {isScanning ? (
+              <>
+                <video ref={videoRef} playsInline className="w-full h-full object-cover" />
+                <div className="absolute inset-0 pointer-events-none border-2 border-dashed border-white/50 m-8 rounded-lg" />
+              </>
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center text-neutral-500">
+                <Camera className="w-12 h-12 opacity-50" />
+              </div>
+            )}
             <canvas ref={canvasRef} className="hidden" />
-            
-            <div className="absolute inset-0 border-2 border-blue-500/30 m-8 rounded-lg">
-               {/* Viewfinder brackets */}
-               <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-blue-500 rounded-tl-lg" />
-               <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-blue-500 rounded-tr-lg" />
-               <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-blue-500 rounded-bl-lg" />
-               <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-blue-500 rounded-br-lg" />
-            </div>
           </div>
 
-          <div className="w-full max-w-md bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 shadow-sm space-y-4">
-            <div className="flex justify-between items-end">
-              <div>
-                <p className="text-sm text-neutral-500 font-medium uppercase tracking-wider">Receiving</p>
-                <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mt-1 truncate max-w-[200px]">
-                  {fileMeta ? fileMeta.name : 'Waiting for data...'}
-                </p>
+          <div className="w-full max-w-md">
+            {fileMeta ? (
+              <div className="space-y-4">
+                <div className="text-center">
+                  <p className="font-medium text-neutral-900 dark:text-neutral-100">Receiving: {fileMeta.name}</p>
+                  <p className="text-sm text-neutral-500 mt-1">
+                    {decoderRef.current?.encodedCount || 0} frames scanned. {decoderRef.current?.decodedCount || 0} / {fileMeta.total} base chunks recovered
+                  </p>
+                </div>
+                <div className="w-full h-2 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-blue-500 transition-all duration-300"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
               </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold text-blue-600">{progress.toFixed(0)}%</p>
-                <p className="text-xs text-neutral-500 font-medium">
-                  {chunksRef.current.size} / {fileMeta ? fileMeta.total : '?'} chunks
-                </p>
-              </div>
-            </div>
-            
-            <div className="w-full h-3 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-blue-500 transition-all duration-300 ease-out"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            
+            ) : (
+              <p className="text-center text-neutral-500 text-sm">
+                Point your camera at a QRFerry transmission...
+              </p>
+            )}
+          </div>
+
+          <div className="flex space-x-4">
             <button
-              onClick={() => { stopCamera(); reset(); }}
-              className="w-full py-2.5 mt-2 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 font-medium rounded-lg transition-colors text-sm"
+              onClick={isScanning ? stopCamera : startCamera}
+              className={cn(
+                "flex items-center space-x-2 px-6 py-3 rounded-lg font-medium transition-colors text-white",
+                isScanning 
+                  ? "bg-red-500 hover:bg-red-600" 
+                  : "bg-blue-600 hover:bg-blue-700"
+              )}
             >
-              Cancel Transfer
+              {isScanning ? (
+                <><span>Stop Scanner</span></>
+              ) : (
+                <><Camera className="w-5 h-5" /> <span>Start Scanner</span></>
+              )}
             </button>
+            {fileMeta && (
+              <button
+                onClick={reset}
+                className="flex items-center space-x-2 px-6 py-3 rounded-lg font-medium transition-colors bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-700"
+              >
+                <RefreshCcw className="w-5 h-5" />
+                <span>Reset</span>
+              </button>
+            )}
           </div>
         </div>
-      )}
-
-      {downloadUrl && fileMeta && (
-        <div className="w-full max-w-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800/30 rounded-xl p-8 text-center space-y-6">
-          <div className="w-16 h-16 bg-green-100 dark:bg-green-800/50 rounded-full flex items-center justify-center mx-auto">
-            <Download className="w-8 h-8 text-green-600 dark:text-green-400" />
+      ) : (
+        <div className="w-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-8 text-center space-y-6 shadow-sm">
+          <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto text-green-600 dark:text-green-400">
+            <Download className="w-8 h-8" />
           </div>
           <div>
-            <h3 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">Transfer Complete!</h3>
-            <p className="text-neutral-600 dark:text-neutral-400 mt-2 text-sm font-medium">
-              {fileMeta.name} ({fileMeta.total} chunks received)
-            </p>
+            <h2 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">Transfer Complete</h2>
+            <p className="text-neutral-500">{fileMeta?.name}</p>
           </div>
-          
-          <div className="flex flex-col space-y-3 pt-4">
+          <div className="flex justify-center space-x-4 pt-4">
             <a
               href={downloadUrl}
-              download={fileMeta.name}
-              className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-medium transition-colors inline-block"
+              download={fileMeta?.name}
+              className="flex items-center space-x-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
             >
-              Save File
+              <Download className="w-5 h-5" />
+              <span>Save File</span>
             </a>
             <button
               onClick={reset}
-              className="w-full flex items-center justify-center space-x-2 py-3 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800 font-medium rounded-lg transition-colors text-sm"
+              className="px-6 py-3 bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-700 rounded-lg font-medium transition-colors"
             >
-              <RefreshCcw className="w-4 h-4" />
-              <span>Receive Another File</span>
+              Receive Another
             </button>
           </div>
         </div>
