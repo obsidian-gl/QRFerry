@@ -25,12 +25,7 @@ export function WebReceiver() {
         video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } } 
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-        setIsScanning(true);
-        scanLoopRef.current = requestAnimationFrame(scanTick);
-      }
+      setIsScanning(true);
     } catch (err: any) {
       console.warn("Camera error:", err);
       setError("Camera permission denied. If you are viewing this in a preview iframe, please open the application in a new tab, or ensure you have granted camera access.");
@@ -40,6 +35,7 @@ export function WebReceiver() {
   const stopCamera = () => {
     setIsScanning(false);
     if (scanLoopRef.current) cancelAnimationFrame(scanLoopRef.current);
+    scanLoopRef.current = null;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
@@ -48,6 +44,16 @@ export function WebReceiver() {
       videoRef.current.srcObject = null;
     }
   };
+
+  useEffect(() => {
+    if (isScanning && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(e => console.error(e));
+      if (!scanLoopRef.current) {
+        scanLoopRef.current = requestAnimationFrame(scanTick);
+      }
+    }
+  }, [isScanning]);
 
   useEffect(() => {
     return () => {
