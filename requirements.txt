@@ -1,0 +1,6 @@
+qrcode[pil]
+opencv-python
+pyzbar
+pyraptorq
+tqdm
+flask

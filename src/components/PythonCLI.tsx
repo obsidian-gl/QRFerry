@@ -1,13 +1,16 @@
 import { useState } from 'react';
-import { Copy, Check } from 'lucide-react';
-import { PYTHON_SCRIPT } from '../lib/python-script';
+import { Copy, Check, Download, FileText, Code2, Terminal } from 'lucide-react';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
+import { PACKAGE_FILES } from '../lib/python-package';
 
 export function PythonCLI() {
+  const [activeFile, setActiveFile] = useState<keyof typeof PACKAGE_FILES>('README.md');
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(PYTHON_SCRIPT);
+      await navigator.clipboard.writeText(PACKAGE_FILES[activeFile]);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -15,44 +18,86 @@ export function PythonCLI() {
     }
   };
 
+  const handleDownloadZip = async () => {
+    try {
+      const JSZip = (await import('jszip')).default;
+      const { saveAs } = await import('file-saver');
+      const zip = new JSZip();
+      
+      Object.entries(PACKAGE_FILES).forEach(([filename, content]) => {
+        zip.file(filename, content);
+      });
+      
+      const blob = await zip.generateAsync({ type: 'blob' });
+      saveAs(blob, 'qrferry-package.zip');
+    } catch (err) {
+      console.error('Failed to generate zip:', err);
+    }
+  };
+
+  const fileKeys = Object.keys(PACKAGE_FILES) as (keyof typeof PACKAGE_FILES)[];
+
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">Python CLI Client</h2>
-          <p className="text-sm text-neutral-500 mt-1">Run QRFerry directly from your terminal.</p>
+          <h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">Python CLI Package</h2>
+          <p className="text-sm text-neutral-500 mt-1">Download and install QRFerry globally via pip.</p>
         </div>
         <button
-          onClick={handleCopy}
-          className="flex items-center space-x-2 px-4 py-2 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors rounded-lg text-sm font-medium"
+          onClick={handleDownloadZip}
+          className="flex items-center space-x-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white transition-colors rounded-lg text-sm font-medium shadow-sm"
         >
-          {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-          <span>{copied ? 'Copied' : 'Copy Code'}</span>
+          <Download className="w-4 h-4" />
+          <span>Download .zip</span>
         </button>
       </div>
       
-      <div className="bg-neutral-950 rounded-xl overflow-hidden shadow-inner border border-neutral-800">
-        <div className="flex bg-neutral-900 px-4 py-2 border-b border-neutral-800 items-center space-x-2">
-          <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
-          <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
-          <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
-          <span className="text-xs text-neutral-500 font-mono ml-2">qrferry.py</span>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="md:col-span-1 space-y-2">
+          <h3 className="text-sm font-medium text-neutral-500 uppercase tracking-wider mb-3 px-2">Files</h3>
+          {fileKeys.map((file) => (
+            <button
+              key={file}
+              onClick={() => setActiveFile(file)}
+              className={\`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors \${
+                activeFile === file 
+                  ? "bg-neutral-200 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100" 
+                  : "text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-900"
+              }\`}
+            >
+              {file.endsWith('.md') ? <FileText className="w-4 h-4" /> : 
+               file.endsWith('.py') ? <Code2 className="w-4 h-4" /> : 
+               <Terminal className="w-4 h-4" />}
+              <span className="truncate">{file}</span>
+            </button>
+          ))}
         </div>
-        <pre className="p-6 text-sm text-neutral-300 font-mono overflow-x-auto max-h-[60vh] scrollbar-thin scrollbar-thumb-neutral-700 scrollbar-track-transparent">
-          <code>{PYTHON_SCRIPT}</code>
-        </pre>
-      </div>
 
-      <div className="bg-blue-50 dark:bg-blue-900/20 p-5 rounded-xl border border-blue-100 dark:border-blue-900/50">
-        <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Usage Instructions</h3>
-        <ol className="list-decimal list-inside space-y-2 text-sm text-blue-800 dark:text-blue-200">
-          <li>Save the code above as <code>qrferry.py</code></li>
-          <li>Install dependencies: <code>pip install qrcode[pil] opencv-python pyzbar pyraptorq tqdm flask</code></li>
-          <li>To send a file (terminal): <code>python qrferry.py send -f my_document.pdf</code></li>
-          <li>To send a file (save GIF): <code>python qrferry.py send -f my_document.pdf --gif</code></li>
-          <li>To receive via CLI: <code>python qrferry.py receive</code></li>
-          <li>To receive via Web/Mobile: <code>python qrferry.py web-receive</code> (Opens server on :5000)</li>
-        </ol>
+        <div className="md:col-span-3 bg-neutral-950 rounded-xl overflow-hidden shadow-inner border border-neutral-800 flex flex-col h-[600px]">
+          <div className="flex bg-neutral-900 px-4 py-3 border-b border-neutral-800 items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="flex space-x-2">
+                <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+                <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+              </div>
+              <span className="text-sm text-neutral-400 font-mono ml-4">{activeFile}</span>
+            </div>
+            <button
+              onClick={handleCopy}
+              className="flex items-center space-x-2 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 transition-colors rounded-md text-xs font-medium text-neutral-300"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copied ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto p-6 bg-[#0d0d0d]">
+            <pre className="text-sm text-neutral-300 font-mono leading-relaxed">
+              <code>{PACKAGE_FILES[activeFile]}</code>
+            </pre>
+          </div>
+        </div>
       </div>
     </div>
   );
