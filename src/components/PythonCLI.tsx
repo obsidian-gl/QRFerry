@@ -47,9 +47,11 @@ export function PythonCLI() {
         <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Usage Instructions</h3>
         <ol className="list-decimal list-inside space-y-2 text-sm text-blue-800 dark:text-blue-200">
           <li>Save the code above as <code>qrferry.py</code></li>
-          <li>Install dependencies: <code>pip install qrcode opencv-python pyzbar</code></li>
-          <li>To send a file: <code>python qrferry.py send -f my_document.pdf</code></li>
-          <li>To receive a file: <code>python qrferry.py receive</code></li>
+          <li>Install dependencies: <code>pip install qrcode[pil] opencv-python pyzbar pyraptorq tqdm flask</code></li>
+          <li>To send a file (terminal): <code>python qrferry.py send -f my_document.pdf</code></li>
+          <li>To send a file (save GIF): <code>python qrferry.py send -f my_document.pdf --gif</code></li>
+          <li>To receive via CLI: <code>python qrferry.py receive</code></li>
+          <li>To receive via Web/Mobile: <code>python qrferry.py web-receive</code> (Opens server on :5000)</li>
         </ol>
       </div>
     </div>
