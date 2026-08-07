@@ -36,7 +36,7 @@ export function WebReceiver() {
     try {
       setError(null);
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } } 
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
       });
       streamRef.current = stream;
       setIsScanning(true);

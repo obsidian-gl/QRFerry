@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { FileUp, Play, Square, Settings, Maximize } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { createEncoder, blockToBinary, EncodedBlock } from 'luby-transform';
+import { ErrorBoundary } from './ErrorBoundary';
 
 function uint8ToBase64(u8Arr: Uint8Array) {
   let str = '';
@@ -65,12 +66,22 @@ export function WebSender() {
   useEffect(() => {
     if (isTransmitting && generatorRef.current) {
       intervalRef.current = window.setInterval(() => {
-        const block = generatorRef.current?.next().value;
-        if (block) {
-          const bin = blockToBinary(block);
-          const b64 = uint8ToBase64(bin);
-          setCurrentQrData(`LT1|${metaNameRef.current}|${b64}`);
-          setChunksSent((prev) => prev + 1);
+        let attempts = 0;
+        while (attempts < 50) {
+          const block = generatorRef.current?.next().value;
+          if (block) {
+            const bin = blockToBinary(block);
+            if (bin.length > 2100) {
+              attempts++;
+              continue;
+            }
+            const b64 = uint8ToBase64(bin);
+            setCurrentQrData(`LT1|${metaNameRef.current}|${b64}`);
+            setChunksSent((prev) => prev + 1);
+            break;
+          } else {
+            break;
+          }
         }
       }, 1000 / fps);
     } else {
@@ -107,12 +118,14 @@ export function WebSender() {
       {currentQrData && (
         <div className="flex flex-col items-center space-y-6 w-full">
           <div className="bg-white p-4 rounded-xl shadow-sm border border-neutral-200 w-full max-w-md aspect-square flex items-center justify-center">
-             <QRCodeSVG 
-               value={currentQrData} 
-               className="w-full h-full max-w-[320px] max-h-[320px]" 
-               level="L" 
-               includeMargin={false}
-             />
+            <ErrorBoundary key={currentQrData} fallback={<div className="text-red-500 font-medium text-center">Frame too large</div>}>
+              <QRCodeSVG 
+                value={currentQrData} 
+                className="w-full h-full max-w-[320px] max-h-[320px]" 
+                level="L" 
+                includeMargin={false}
+              />
+            </ErrorBoundary>
           </div>
 
           <div className="w-full max-w-md flex flex-col space-y-4">
