@@ -1,10 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { FileUp, Play, Square, Settings } from 'lucide-react';
+import { FileUp, Play, Square, Settings, Maximize } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { createEncoder, blockToBinary, EncodedBlock } from 'luby-transform';
-
-const CHUNK_SIZE = 500;
 
 function uint8ToBase64(u8Arr: Uint8Array) {
   let str = '';
@@ -17,13 +15,31 @@ function uint8ToBase64(u8Arr: Uint8Array) {
 export function WebSender() {
   const [file, setFile] = useState<File | null>(null);
   const [isTransmitting, setIsTransmitting] = useState(false);
-  const [fps, setFps] = useState(8);
+  const [fps, setFps] = useState(15);
+  const [chunkSize, setChunkSize] = useState(800);
   const [chunksSent, setChunksSent] = useState(0);
   const [currentQrData, setCurrentQrData] = useState<string | null>(null);
   
   const generatorRef = useRef<Generator<EncodedBlock, never> | null>(null);
   const intervalRef = useRef<number | null>(null);
   const metaNameRef = useRef<string>('');
+
+  const initEncoder = async (selectedFile: File, size: number) => {
+    const buffer = await selectedFile.arrayBuffer();
+    const data = new Uint8Array(buffer);
+    const filenameB64 = btoa(selectedFile.name);
+    metaNameRef.current = filenameB64;
+    
+    const encoder = createEncoder(data, size);
+    generatorRef.current = encoder.fountain();
+    
+    const block = generatorRef.current.next().value;
+    if (block) {
+      const bin = blockToBinary(block);
+      const b64 = uint8ToBase64(bin);
+      setCurrentQrData(`LT1|${filenameB64}|${b64}`);
+    }
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -34,20 +50,15 @@ export function WebSender() {
     setChunksSent(0);
     setCurrentQrData(null);
     
-    const buffer = await selected.arrayBuffer();
-    const data = new Uint8Array(buffer);
-    const filenameB64 = btoa(selected.name);
-    metaNameRef.current = filenameB64;
-    
-    const encoder = createEncoder(data, CHUNK_SIZE);
-    generatorRef.current = encoder.fountain();
-    
-    // generate the first QR to display immediately
-    const block = generatorRef.current.next().value;
-    if (block) {
-      const bin = blockToBinary(block);
-      const b64 = uint8ToBase64(bin);
-      setCurrentQrData(`LT1|${filenameB64}|${b64}`);
+    await initEncoder(selected, chunkSize);
+  };
+
+  const handleChunkSizeChange = async (newSize: number) => {
+    setChunkSize(newSize);
+    if (file) {
+      setIsTransmitting(false);
+      setChunksSent(0);
+      await initEncoder(file, newSize);
     }
   };
 
@@ -117,11 +128,11 @@ export function WebSender() {
               />
             </div>
 
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4">
+            <div className="flex flex-col gap-3 mt-4">
               <button
                 onClick={() => setIsTransmitting(!isTransmitting)}
                 className={cn(
-                  "w-full sm:w-auto flex justify-center items-center space-x-2 px-6 py-3 rounded-lg font-medium transition-colors text-white",
+                  "w-full flex justify-center items-center space-x-2 px-6 py-3 rounded-lg font-medium transition-colors text-white",
                   isTransmitting 
                     ? "bg-red-500 hover:bg-red-600" 
                     : "bg-blue-600 hover:bg-blue-700"
@@ -134,19 +145,39 @@ export function WebSender() {
                 )}
               </button>
               
-              <div className="w-full sm:w-auto flex justify-center items-center space-x-3 text-neutral-600 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-900 px-4 py-2 rounded-lg">
-                <Settings className="w-4 h-4" />
-                <span className="text-sm">Speed:</span>
-                <select 
-                  value={fps} 
-                  onChange={(e) => setFps(Number(e.target.value))}
-                  className="bg-transparent text-sm font-medium focus:outline-none"
-                  disabled={isTransmitting}
-                >
-                  <option value={4}>Slow (4 fps)</option>
-                  <option value={8}>Normal (8 fps)</option>
-                  <option value={15}>Fast (15 fps)</option>
-                </select>
+              <div className="flex flex-col sm:flex-row gap-3 w-full">
+                <div className="flex-1 flex justify-center items-center space-x-2 text-neutral-600 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-900 px-3 py-2 rounded-lg">
+                  <Settings className="w-4 h-4" />
+                  <span className="text-sm">Speed:</span>
+                  <select 
+                    value={fps} 
+                    onChange={(e) => setFps(Number(e.target.value))}
+                    className="bg-transparent text-sm font-medium focus:outline-none w-full"
+                  >
+                    <option value={4}>4 fps</option>
+                    <option value={8}>8 fps</option>
+                    <option value={15}>15 fps</option>
+                    <option value={20}>20 fps</option>
+                    <option value={24}>24 fps</option>
+                    <option value={30}>30 fps</option>
+                  </select>
+                </div>
+
+                <div className="flex-1 flex justify-center items-center space-x-2 text-neutral-600 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-900 px-3 py-2 rounded-lg">
+                  <Maximize className="w-4 h-4" />
+                  <span className="text-sm">Density:</span>
+                  <select 
+                    value={chunkSize} 
+                    onChange={(e) => handleChunkSizeChange(Number(e.target.value))}
+                    className="bg-transparent text-sm font-medium focus:outline-none w-full"
+                    disabled={isTransmitting}
+                  >
+                    <option value={300}>Low (300B)</option>
+                    <option value={500}>Medium (500B)</option>
+                    <option value={800}>High (800B)</option>
+                    <option value={1200}>Max (1200B)</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>
